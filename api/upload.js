@@ -5,13 +5,6 @@ const fs = require('fs');
 
 const FOLDER_ID = '1pUOEE5hqJMgbzgsuM4sHdIXmjVOq5Hc0';
 
-// Desabilitar body parser do Vercel
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
 module.exports = async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -102,16 +95,18 @@ module.exports = async function handler(req, res) {
             try {
               const fileStream = fs.createReadStream(file.filepath);
 
+              // Fazer upload SEM especificar parent inicialmente
               const driveResponse = await drive.files.create({
                 requestBody: {
                   name: fileName,
-                  parents: [FOLDER_ID],
+                  parents: [FOLDER_ID], // Especificar a pasta compartilhada
                 },
                 media: {
                   mimeType: file.mimetype || 'image/jpeg',
                   body: fileStream,
                 },
                 fields: 'id, name, webViewLink',
+                supportsAllDrives: true, // IMPORTANTE: suportar drives compartilhados
               });
 
               console.log(`Arquivo enviado: ${driveResponse.data.id}`);
@@ -156,4 +151,3 @@ module.exports = async function handler(req, res) {
     });
   }
 };
-
