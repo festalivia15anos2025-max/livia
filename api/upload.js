@@ -21,37 +21,68 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // Configurar Google Drive
+    // Configurar Google Drive com escopo completo
     const auth = new google.auth.GoogleAuth({
       credentials: {
         client_email: process.env.GOOGLE_CLIENT_EMAIL,
         private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
       },
-      scopes: ['https://www.googleapis.com/auth/drive.file'],
+      scopes: [
+        'https://www.googleapis.com/auth/drive',
+        'https://www.googleapis.com/auth/drive.file'
+      ],
     });
 
     const drive = google.drive({ version: 'v3', auth });
 
-    // Parse form
-    const form = formidable({ multiples: true, maxFileSize: 50 * 1024 * 1024 });
+    // Parse form com configurações corretas
+    const form = formidable({ 
+      multiples: true, 
+      maxFileSize: 50 * 1024 * 1024,
+      keepExtensions: true
+    });
 
     const uploadedFiles = [];
 
     await new Promise((resolve, reject) => {
       form.parse(req, async (err, fields, files) => {
         if (err) {
+          console.error('Erro no parse:', err);
           reject(err);
           return;
         }
 
         try {
-          const fileArray = Array.isArray(files.photos) ? files.photos : [files.photos];
+          console.log('Arquivos recebidos:', files);
+          
+          // Suporta tanto array quanto objeto único
+          let fileArray = [];
+          if (files.photos) {
+            fileArray = Array.isArray(files.photos) ? files.photos : [files.photos];
+          } else if (files.photo) {
+            fileArray = Array.isArray(files.photo) ? files.photo : [files.photo];
+          } else {
+            // Pegar o primeiro campo de arquivo encontrado
+            const firstFileKey = Object.keys(files)[0];
+            if (firstFileKey) {
+              fileArray = Array.isArray(files[firstFileKey]) ? files[firstFileKey] : [files[firstFileKey]];
+            }
+          }
+
+          console.log('Total de arquivos a processar:', fileArray.length);
 
           for (const file of fileArray) {
-            if (!file) continue;
+            if (!file || !file.filepath) {
+              console.log('Arquivo inválido, pulando...');
+              continue;
+            }
 
+            console.log('Processando arquivo:', file.originalFilename || file.newFilename);
+
+            const fileName = `festa-livia-${Date.now()}-${file.originalFilename || file.newFilename || 'photo.jpg'}`;
+            
             const fileMetadata = {
-              name: `festa-livia-${Date.now()}-${file.originalFilename || 'photo.jpg'}`,
+              name: fileName,
               parents: [FOLDER_ID],
             };
 
@@ -60,11 +91,15 @@ module.exports = async function handler(req, res) {
               body: createReadStream(file.filepath),
             };
 
+            console.log('Enviando para Google Drive...');
+
             const response = await drive.files.create({
               requestBody: fileMetadata,
               media: media,
               fields: 'id, name, webViewLink',
             });
+
+            console.log('Arquivo enviado com sucesso:', response.data.id);
 
             uploadedFiles.push(response.data);
 
@@ -78,17 +113,25 @@ module.exports = async function handler(req, res) {
 
           resolve();
         } catch (error) {
+          console.error('Erro ao processar arquivos:', error);
           reject(error);
         }
       });
     });
 
-    return res.status(200).json({ success: true, files: uploadedFiles });
+    console.log('Upload concluído. Total de arquivos:', uploadedFiles.length);
+
+    return res.status(200).json({ 
+      success: true, 
+      files: uploadedFiles,
+      count: uploadedFiles.length 
+    });
   } catch (error) {
     console.error('Erro ao fazer upload:', error);
     return res.status(500).json({ 
       success: false, 
-      error: error.message || 'Erro ao enviar fotos'
+      error: error.message || 'Erro ao enviar fotos',
+      details: error.toString()
     });
   }
 };
