@@ -1,14 +1,19 @@
 // api/photos.js
-const { google } = require('googleapis');
+const { v2: cloudinary } = require('cloudinary');
 
-const FOLDER_ID = '1pUOEE5hqJMgbzgsuM4sHdIXmjVOq5Hc0';
+// Configurar Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 module.exports = async function handler(req, res) {
   // CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -19,59 +24,40 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // Configurar Google Drive
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      },
-      scopes: [
-        'https://www.googleapis.com/auth/drive',
-        'https://www.googleapis.com/auth/drive.file'
-      ],
-    });
+    // Verificar credenciais
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      throw new Error('Credenciais do Cloudinary não configuradas');
+    }
 
-    const drive = google.drive({ version: 'v3', auth });
+    // Listar todas as imagens da pasta
+    const result = await cloudinary.search
+      .expression('folder:festa-livia-15anos')
+      .sort_by('created_at', 'desc')
+      .max_results(500)
+      .execute();
 
-    // Listar TODOS os arquivos da pasta (sem filtro de tipo)
-    const response = await drive.files.list({
-      q: `'${FOLDER_ID}' in parents and trashed=false`,
-      fields: 'files(id, name, webViewLink, webContentLink, thumbnailLink, createdTime, mimeType)',
-      orderBy: 'createdTime desc',
-      pageSize: 1000,
-    });
+    console.log(`Encontradas ${result.resources.length} fotos`);
 
-    console.log('Arquivos encontrados:', response.data.files?.length || 0);
+    // Formatar as fotos
+    const files = result.resources.map((resource) => ({
+      id: resource.public_id,
+      name: resource.public_id.split('/').pop(),
+      thumbnailLink: resource.secure_url.replace('/upload/', '/upload/w_400,h_400,c_fill/'),
+      webViewLink: resource.secure_url,
+      directLink: resource.secure_url,
+      createdTime: resource.created_at,
+    }));
 
-    // Processar todos os arquivos
-    const files = (response.data.files || []).map((file) => {
-      // Gerar thumbnail e link de visualização
-      const thumbnailLink = `https://drive.google.com/thumbnail?id=${file.id}&sz=w400`;
-      const webViewLink = `https://drive.google.com/file/d/${file.id}/view`;
-      const directLink = `https://lh3.googleusercontent.com/d/${file.id}`;
-
-      return {
-        id: file.id,
-        name: file.name,
-        thumbnailLink: thumbnailLink,
-        webViewLink: webViewLink,
-        directLink: directLink,
-        createdTime: file.createdTime,
-        mimeType: file.mimeType,
-      };
-    });
-
-    return res.status(200).json({ 
-      success: true, 
+    return res.status(200).json({
+      success: true,
       files: files,
-      count: files.length
+      count: files.length,
     });
   } catch (error) {
     console.error('Erro ao listar fotos:', error);
-    return res.status(500).json({ 
-      success: false, 
+    return res.status(500).json({
+      success: false,
       error: error.message || 'Erro ao carregar fotos',
-      details: error.toString()
     });
   }
 };
