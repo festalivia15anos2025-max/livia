@@ -1,18 +1,22 @@
 // api/upload.js
-const { google } = require('googleapis');
+const { v2: cloudinary } = require('cloudinary');
 const { IncomingForm } = require('formidable');
 const fs = require('fs');
 
-const FOLDER_ID = '1pUOEE5hqJMgbzgsuM4sHdIXmjVOq5Hc0';
+// Configurar Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 module.exports = async function handler(req, res) {
-  // CORS headers
+  // CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
 
-  // Handle OPTIONS
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
@@ -24,27 +28,12 @@ module.exports = async function handler(req, res) {
   }
 
   console.log('=== INÍCIO DO UPLOAD ===');
-  console.log('Headers:', req.headers);
 
   try {
     // Verificar variáveis de ambiente
-    if (!process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
-      throw new Error('Variáveis de ambiente não configuradas');
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      throw new Error('Credenciais do Cloudinary não configuradas');
     }
-
-    console.log('Email configurado:', process.env.GOOGLE_CLIENT_EMAIL);
-
-    // Configurar Google Drive
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-      },
-      scopes: ['https://www.googleapis.com/auth/drive'],
-    });
-
-    const drive = google.drive({ version: 'v3', auth });
-    console.log('Google Drive configurado');
 
     // Parse do formulário
     const form = new IncomingForm({
@@ -55,17 +44,17 @@ module.exports = async function handler(req, res) {
 
     const uploadedFiles = [];
 
-    const result = await new Promise((resolve, reject) => {
+    await new Promise((resolve, reject) => {
       form.parse(req, async (err, fields, files) => {
         if (err) {
-          console.error('Erro no parse do form:', err);
+          console.error('Erro no parse:', err);
           reject(err);
           return;
         }
 
-        console.log('Arquivos recebidos:', Object.keys(files));
-
         try {
+          console.log('Arquivos recebidos:', Object.keys(files));
+
           // Pegar todos os arquivos
           let allFiles = [];
           for (const key in files) {
@@ -82,7 +71,7 @@ module.exports = async function handler(req, res) {
           // Upload de cada arquivo
           for (let i = 0; i < allFiles.length; i++) {
             const file = allFiles[i];
-            
+
             if (!file || !file.filepath) {
               console.log(`Arquivo ${i} inválido, pulando...`);
               continue;
@@ -90,27 +79,24 @@ module.exports = async function handler(req, res) {
 
             console.log(`Processando arquivo ${i + 1}/${allFiles.length}: ${file.originalFilename}`);
 
-            const fileName = `festa-livia-${Date.now()}-${i}-${file.originalFilename || 'photo.jpg'}`;
-
             try {
-              const fileStream = fs.createReadStream(file.filepath);
-
-              // Fazer upload SEM especificar parent inicialmente
-              const driveResponse = await drive.files.create({
-                requestBody: {
-                  name: fileName,
-                  parents: [FOLDER_ID], // Especificar a pasta compartilhada
-                },
-                media: {
-                  mimeType: file.mimetype || 'image/jpeg',
-                  body: fileStream,
-                },
-                fields: 'id, name, webViewLink',
-                supportsAllDrives: true, // IMPORTANTE: suportar drives compartilhados
+              // Upload para Cloudinary
+              const result = await cloudinary.uploader.upload(file.filepath, {
+                folder: 'festa-livia-15anos',
+                public_id: `foto-${Date.now()}-${i}`,
+                resource_type: 'auto',
+                tags: ['festa', 'livia', '15anos'],
               });
 
-              console.log(`Arquivo enviado: ${driveResponse.data.id}`);
-              uploadedFiles.push(driveResponse.data);
+              console.log(`Arquivo enviado: ${result.public_id}`);
+
+              uploadedFiles.push({
+                id: result.public_id,
+                name: file.originalFilename || `foto-${i}.jpg`,
+                url: result.secure_url,
+                thumbnailUrl: result.secure_url.replace('/upload/', '/upload/w_400,h_400,c_fill/'),
+                createdTime: new Date().toISOString(),
+              });
 
               // Limpar arquivo temporário
               try {
@@ -140,14 +126,11 @@ module.exports = async function handler(req, res) {
     });
   } catch (error) {
     console.error('=== ERRO NO UPLOAD ===');
-    console.error('Tipo:', error.constructor.name);
     console.error('Mensagem:', error.message);
-    console.error('Stack:', error.stack);
 
     res.status(500).json({
       success: false,
       error: error.message,
-      type: error.constructor.name,
     });
   }
 };
