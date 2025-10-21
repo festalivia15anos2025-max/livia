@@ -1,6 +1,6 @@
 // api/upload.js
 const { google } = require('googleapis');
-const formidable = require('formidable');
+const { IncomingForm } = require('formidable');
 const fs = require('fs');
 
 const FOLDER_ID = '1pUOEE5hqJMgbzgsuM4sHdIXmjVOq5Hc0';
@@ -54,7 +54,7 @@ module.exports = async function handler(req, res) {
     console.log('Google Drive configurado');
 
     // Parse do formulário
-    const form = formidable({
+    const form = new IncomingForm({
       multiples: true,
       maxFileSize: 50 * 1024 * 1024,
       keepExtensions: true,
@@ -156,3 +156,4 @@ module.exports = async function handler(req, res) {
     });
   }
 };
+
