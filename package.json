@@ -1,0 +1,9 @@
+{
+  "name": "festa-livia-15anos",
+  "version": "1.0.0",
+  "description": "Site para compartilhar fotos da festa de 15 anos da Lívia",
+  "dependencies": {
+    "googleapis": "^128.0.0",
+    "formidable": "^3.5.1"
+  }
+}
